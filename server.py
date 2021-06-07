@@ -61,6 +61,7 @@ class CacheDNS:
             if time < record.del_time:
                 updated_cache.append(record)
         self.cache = updated_cache
+        self.save_records()
 
     def add_ttl(self, ttl):
         return datetime.datetime.now() + datetime.timedelta(seconds=ttl)
