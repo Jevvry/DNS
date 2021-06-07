@@ -22,21 +22,19 @@ class CacheDNS:
         upd_request = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while True:
             data, addr = udp.recvfrom(65535)
-            data = data.decode()
-            if data == 'save':
-                self.save_records()
-                return
-            qname, qtype = data.split(' ')
+            request = DNS(_pkt=data)
+            qname = request.qd.qname.decode()
+            qtype = self.types[request.qd.qtype]
             self.update_cache()
             record = self.find_record(qname, qtype)
             if record is None:
-                upd_request.sendto(self.build_package(qname, qtype), ("8.8.8.8", 53))
+                upd_request.sendto(data, ("8.8.8.8", 53))
                 response = upd_request.recv(65535)
                 out = DNS(_pkt=response)
-                udp.sendto(jsonpickle.encode(self.build_record(out.an)).encode(), addr)
+                udp.sendto(response, addr)
                 self.parse_package(out)
             else:
-                udp.sendto(jsonpickle.encode(record).decode(), addr)
+                udp.sendto(jsonpickle.encode(record).pkt, addr)
 
     def find_record(self, qname, qtype):
         for record in self.cache:
@@ -45,11 +43,13 @@ class CacheDNS:
 
     def parse_package(self, package):
         an_count = package.ancount - 1
-        record = self.build_record(package.an)
+        if package.an is None:
+            return
+        record = self.build_record(package.an, package)
         self.cache.append(record)
         package = package.an
         for _ in range(an_count):
-            record = self.build_record(package.payload)
+            record = self.build_record(package.payload, package)
             self.cache.append(record)
             print(len(server.cache), record.ttl, record.name, record.data, sep=' ')
             package = package.payload
@@ -73,14 +73,14 @@ class CacheDNS:
         dns = DNSQR(qname=name, qtype=qtype)
         return DNS(qd=dns).build()
 
-    def build_record(self, answer):
+    def build_record(self, answer, pkt):
         name = answer.rrname.decode()
         qtype = self.types[answer.type]
         ttl = answer.ttl
         data = answer.rdata
         if type(data) is not str:
             data = data.decode()
-        return Record(name, data, ttl, qtype)
+        return Record(name, data, ttl, qtype, pkt)
 
     def save_records(self):
         with open("cache.txt", mode="w") as file:
